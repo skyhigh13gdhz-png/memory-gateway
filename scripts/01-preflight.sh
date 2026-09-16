@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 HINDSIGHT_BASE_URL="${HINDSIGHT_BASE_URL:-http://127.0.0.1:8888}"
+LOCAL_HTTP_PROXY="${MEMORY_GATEWAY_HTTP_PROXY:-http://127.0.0.1:10809}"
 
 ok(){ printf '[✓] %s\n' "$*"; }
 warn(){ printf '[!] %s\n' "$*"; }
@@ -14,9 +15,11 @@ command -v python3 >/dev/null 2>&1 || die '缺少 python3。'
 ok '基础命令：curl / python3 已准备'
 
 if curl -fsSIL --max-time 8 https://github.com >/dev/null 2>&1; then
-  ok 'GitHub：可以访问'
+  ok 'GitHub：直连可以访问'
+elif curl -fsSIL --max-time 8 --proxy "$LOCAL_HTTP_PROXY" https://github.com >/dev/null 2>&1; then
+  ok "GitHub：通过现有本机代理可以访问 (${LOCAL_HTTP_PROXY})"
 else
-  warn 'GitHub：当前不可直接访问；安装器应改用 Gitee 镜像或现有网络方案'
+  warn 'GitHub：直连和现有本机代理均不可访问'
 fi
 
 if curl -fsSIL --max-time 8 https://gitee.com >/dev/null 2>&1; then
