@@ -6,6 +6,8 @@ from .config import settings
 
 
 class HindsightAdapter:
+    """只在这一层理解 Hindsight 私有 API，Gateway 对外 contract 不泄漏这些细节。"""
+
     def __init__(self) -> None:
         self.base_url = settings.hindsight_base_url.rstrip("/")
         self.timeout = settings.hindsight_timeout_seconds
@@ -19,26 +21,35 @@ class HindsightAdapter:
             return response.json()
 
     async def health(self) -> bool:
+        # 当前已验收的 Hindsight 部署以 /docs 作为基础可达性检查。
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{self.base_url}/health")
-                return response.status_code < 500
+                response = await client.get(f"{self.base_url}/docs")
+                return response.status_code < 400
         except httpx.HTTPError:
             return False
 
     async def retain(self, bank_id: str, content: str, metadata: dict[str, Any]) -> Any:
+        item: dict[str, Any] = {"content": content}
+        if metadata:
+            item["metadata"] = metadata
         return await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/memories",
-            json={"items": [{"content": content, "metadata": metadata}]},
+            json={"items": [item]},
         )
 
     async def recall(self, bank_id: str, query: str, max_results: int) -> Any:
-        return await self._request(
+        # max_results 属于 Gateway contract；Hindsight 当前已验收 payload 只保证 query。
+        # 在确认 Hindsight 对结果数量参数的正式字段前，不把猜测字段透传到底层。
+        data = await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/memories/recall",
-            json={"query": query, "max_results": max_results},
+            json={"query": query},
         )
+        if isinstance(data, dict) and isinstance(data.get("results"), list):
+            data = {**data, "results": data["results"][:max_results]}
+        return data
 
     async def reflect(self, bank_id: str, query: str) -> Any:
         return await self._request(
