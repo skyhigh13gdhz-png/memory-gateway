@@ -4,12 +4,13 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${ROOT_DIR}/.venv"
 SERVICE_FILE=/etc/systemd/system/memory-gateway.service
+CLI_FILE=/usr/local/bin/memory-gateway
 
 ok(){ printf '[✓] %s\n' "$*"; }
 die(){ printf '[✗] %s\n' "$*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die '请使用 sudo 运行安装脚本。'
-[[ -f "${ROOT_DIR}/.env" ]] || die "缺少 ${ROOT_DIR}/.env。请先从 .env.example 创建并填写本机配置。"
+[[ -f "${ROOT_DIR}/.env" ]] || die "缺少 ${ROOT_DIR}/.env。"
 
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-venv >/dev/null
@@ -36,6 +37,11 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
+
+install -m 0755 "$ROOT_DIR/bin/memory-gateway" "$CLI_FILE"
+# 固定实际安装目录，允许用户通过统一 CLI 管理非默认路径安装。
+sed -i "s|^ROOT_DIR=.*|ROOT_DIR=\"${ROOT_DIR}\"|" "$CLI_FILE"
+ok '统一管理命令已安装：memory-gateway'
 
 systemctl daemon-reload
 systemctl enable --now memory-gateway.service >/dev/null
