@@ -5,38 +5,70 @@ ROOT_DIR="${MEMORY_GATEWAY_DIR:-/opt/src/memory-gateway}"
 ENV_FILE="$ROOT_DIR/.env"
 SERVICE="memory-gateway.service"
 
+ok(){ printf '[✓] %s\n' "$*"; }
+warn(){ printf '[!] %s\n' "$*"; }
+fail(){ printf '[✗] %s\n' "$*" >&2; }
+
 usage(){ cat <<'EOF'
 Memory Gateway 管理工具
 
 用法：memory-gateway <命令>
 
-  status    查看服务状态
+  status    查看简洁中文状态
   health    检查 Gateway 与 Hindsight
   test      执行 Retain / Recall / Reflect 端到端验收
   logs      查看最近服务日志
   restart   重启 Gateway
-  config    显示配置文件位置与非敏感配置
+  config    显示非敏感配置
   help      显示帮助
 EOF
 }
 
-load_env(){
-  [[ -f "$ENV_FILE" ]] || { echo "[✗] 找不到 $ENV_FILE" >&2; exit 1; }
+# .env 保持 root-owned 0600。普通用户管理命令不直接读取秘密文件；
+# 通过 systemd 已加载的非敏感启动参数获取 host/port，Token 仅在 test 时由 sudo 读取。
+service_host_port(){
+  local exec_line
+  exec_line="$(systemctl show "$SERVICE" -p ExecStart --value 2>/dev/null || true)"
+  GATEWAY_HOST="$(printf '%s' "$exec_line" | sed -n 's/.*--host[ =]\([^ ;}]*\).*/\1/p')"
+  GATEWAY_PORT="$(printf '%s' "$exec_line" | sed -n 's/.*--port[ =]\([0-9][0-9]*\).*/\1/p')"
+  GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
+  GATEWAY_PORT="${GATEWAY_PORT:-8787}"
+}
+
+require_root_env(){
+  if [[ $EUID -ne 0 ]]; then
+    exec sudo -E "$0" "$@"
+  fi
+  [[ -r "$ENV_FILE" ]] || { fail "无法读取本机配置：$ENV_FILE"; exit 1; }
   set -a; source "$ENV_FILE"; set +a
 }
 
 case "${1:-help}" in
   status)
-    systemctl --no-pager --full status "$SERVICE" || true
+    echo '========== Memory Gateway 状态 =========='
+    total=0; good=0
+    total=$((total+1)); if systemctl is-active --quiet "$SERVICE"; then ok 'Gateway 服务：正在运行'; good=$((good+1)); else fail 'Gateway 服务：未运行'; fi
+    total=$((total+1)); if systemctl is-enabled --quiet "$SERVICE" 2>/dev/null; then ok '开机自动启动：已启用'; good=$((good+1)); else warn '开机自动启动：未启用'; fi
+    service_host_port
+    total=$((total+1)); if curl -fsS --max-time 5 "http://${GATEWAY_HOST}:${GATEWAY_PORT}/health" >/dev/null 2>&1; then ok 'Gateway 接口：可以访问'; good=$((good+1)); else fail 'Gateway 接口：无法访问'; fi
+    printf '\n[✓] 正常：%d/%d 项\n' "$good" "$total"
+    if [[ $good -eq $total ]]; then echo '当前状态：一切正常，可以继续使用记忆网关。'; else echo '当前状态：存在异常，请运行 memory-gateway health 或 memory-gateway logs。'; exit 1; fi
+    echo '=========================================='
     ;;
   health)
-    load_env
-    base="http://${GATEWAY_HOST:-127.0.0.1}:${GATEWAY_PORT:-8787}"
+    service_host_port
     echo '========== Memory Gateway 健康检查 =========='
-    if curl -fsS --max-time 10 "$base/health"; then echo; else echo '[✗] Gateway 不可访问' >&2; exit 1; fi
+    total=0; good=0
+    total=$((total+1)); if systemctl is-active --quiet "$SERVICE"; then ok 'Gateway 服务：正在运行'; good=$((good+1)); else fail 'Gateway 服务：未运行'; fi
+    health_json="$(curl -fsS --max-time 10 "http://${GATEWAY_HOST}:${GATEWAY_PORT}/health" 2>/dev/null || true)"
+    total=$((total+1)); if [[ -n "$health_json" ]]; then ok 'Gateway 接口：可以访问'; good=$((good+1)); else fail 'Gateway 接口：无法访问'; fi
+    total=$((total+1)); if printf '%s' "$health_json" | grep -Eq '"hindsight"[[:space:]]*:[[:space:]]*(true|"ok")|"ok"[[:space:]]*:[[:space:]]*true'; then ok 'Hindsight 记忆服务：可以访问'; good=$((good+1)); else fail 'Hindsight 记忆服务：无法确认'; fi
+    printf '\n[✓] 正常：%d/%d 项\n' "$good" "$total"
+    if [[ $good -eq $total ]]; then echo '当前状态：Gateway → Hindsight 健康链路正常。'; else echo '当前状态：健康检查存在异常，请运行 memory-gateway logs。'; exit 1; fi
+    echo '=============================================='
     ;;
   test)
-    load_env
+    require_root_env "$@"
     export GATEWAY_BASE_URL="http://${GATEWAY_HOST:-127.0.0.1}:${GATEWAY_PORT:-8787}"
     exec bash "$ROOT_DIR/scripts/03-smoke-test.sh"
     ;;
@@ -44,16 +76,24 @@ case "${1:-help}" in
     exec journalctl -u "$SERVICE" -n "${MEMORY_GATEWAY_LOG_LINES:-100}" --no-pager
     ;;
   restart)
+    if [[ $EUID -ne 0 ]]; then exec sudo -E "$0" "$@"; fi
     systemctl restart "$SERVICE"
-    systemctl is-active --quiet "$SERVICE" && echo '[✓] Memory Gateway 已重启，当前运行正常'
+    systemctl is-active --quiet "$SERVICE" && ok 'Memory Gateway 已重启，当前运行正常'
     ;;
   config)
-    load_env
-    echo "配置文件：$ENV_FILE"
-    echo "Gateway：${GATEWAY_HOST:-127.0.0.1}:${GATEWAY_PORT:-8787}"
-    echo "Hindsight：${HINDSIGHT_BASE_URL:-http://127.0.0.1:8888}"
-    echo "默认 Bank：${DEFAULT_BANK_ID:-default}"
-    echo 'API Token：已隐藏'
+    service_host_port
+    echo '========== Memory Gateway 配置 =========='
+    echo "Gateway 地址：${GATEWAY_HOST}:${GATEWAY_PORT}"
+    echo "本机配置文件：$ENV_FILE"
+    echo 'API Token：已安全隐藏'
+    if [[ $EUID -eq 0 && -r "$ENV_FILE" ]]; then
+      set -a; source "$ENV_FILE"; set +a
+      echo "Hindsight 地址：${HINDSIGHT_BASE_URL:-http://127.0.0.1:8888}"
+      echo "默认 Bank：${DEFAULT_BANK_ID:-default}"
+    else
+      echo 'Hindsight / Bank：运行 memory-gateway test 时自动使用本机安全配置'
+    fi
+    echo '=========================================='
     ;;
   help|-h|--help) usage ;;
   *) echo "未知命令：$1" >&2; usage; exit 2 ;;
