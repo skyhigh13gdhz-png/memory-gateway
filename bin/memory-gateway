@@ -14,18 +14,19 @@ Memory Gateway 管理工具
 
 用法：memory-gateway <命令>
 
-  status    查看简洁中文状态
-  health    检查 Gateway 与 Hindsight
-  test      执行 Retain / Recall / Reflect 端到端验收
-  logs      查看最近服务日志
-  restart   重启 Gateway
-  config    显示非敏感配置
-  help      显示帮助
+  status              查看简洁中文状态
+  health              检查 Gateway 与 Hindsight
+  test                执行 Retain / Recall / Reflect 端到端验收
+  logs                查看本次服务启动后的日志（默认最多 100 行）
+  logs 300            查看本次服务启动后的最近 300 行
+  logs --history      查看历史日志（默认最近 100 行）
+  logs --history 500  查看最近 500 行历史日志
+  restart             重启 Gateway
+  config              显示非敏感配置
+  help                显示帮助
 EOF
 }
 
-# .env 保持 root-owned 0600。普通用户管理命令不直接读取秘密文件；
-# 通过 systemd 已加载的非敏感启动参数获取 host/port，Token 仅在 test 时由 sudo 读取。
 service_host_port(){
   local exec_line
   exec_line="$(systemctl show "$SERVICE" -p ExecStart --value 2>/dev/null || true)"
@@ -36,12 +37,12 @@ service_host_port(){
 }
 
 require_root_env(){
-  if [[ $EUID -ne 0 ]]; then
-    exec sudo -E "$0" "$@"
-  fi
+  if [[ $EUID -ne 0 ]]; then exec sudo -E "$0" "$@"; fi
   [[ -r "$ENV_FILE" ]] || { fail "无法读取本机配置：$ENV_FILE"; exit 1; }
   set -a; source "$ENV_FILE"; set +a
 }
+
+valid_lines(){ [[ "${1:-}" =~ ^[1-9][0-9]*$ ]]; }
 
 case "${1:-help}" in
   status)
@@ -73,7 +74,29 @@ case "${1:-help}" in
     exec bash "$ROOT_DIR/scripts/03-smoke-test.sh"
     ;;
   logs)
-    exec journalctl -u "$SERVICE" -n "${MEMORY_GATEWAY_LOG_LINES:-100}" --no-pager
+    mode="current"; lines=100
+    if [[ "${2:-}" == "--history" ]]; then
+      mode="history"
+      [[ -z "${3:-}" ]] || { valid_lines "$3" || { fail '日志行数必须是正整数，例如：memory-gateway logs --history 500'; exit 2; }; lines="$3"; }
+      [[ -z "${4:-}" ]] || { fail 'logs 参数过多。运行 memory-gateway help 查看用法。'; exit 2; }
+    else
+      [[ -z "${2:-}" ]] || { valid_lines "$2" || { fail '日志行数必须是正整数，例如：memory-gateway logs 300'; exit 2; }; lines="$2"; }
+      [[ -z "${3:-}" ]] || { fail 'logs 参数过多。运行 memory-gateway help 查看用法。'; exit 2; }
+    fi
+    echo '========== Memory Gateway 运行日志 =========='
+    if [[ "$mode" == "history" ]]; then
+      echo "范围：历史日志，最近 ${lines} 行"
+      echo '提示：历史日志可能包含已经解决的旧故障。'
+      echo '=============================================='
+      exec journalctl -u "$SERVICE" -n "$lines" --no-pager
+    else
+      started="$(systemctl show "$SERVICE" -p ActiveEnterTimestamp --value 2>/dev/null || true)"
+      echo "范围：本次服务启动后，最多 ${lines} 行"
+      [[ -n "$started" ]] && echo "本次启动：$started"
+      echo '=============================================='
+      if [[ -n "$started" ]]; then exec journalctl -u "$SERVICE" --since "$started" -n "$lines" --no-pager; fi
+      exec journalctl -u "$SERVICE" -n "$lines" --no-pager
+    fi
     ;;
   restart)
     if [[ $EUID -ne 0 ]]; then exec sudo -E "$0" "$@"; fi
