@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT_DIR="${MEMORY_GATEWAY_DIR:-/opt/src/memory-gateway}"
+ENV_FILE="$ROOT_DIR/.env"
+SERVICE="memory-gateway.service"
+
+usage(){ cat <<'EOF'
+Memory Gateway 管理工具
+
+用法：memory-gateway <命令>
+
+  status    查看服务状态
+  health    检查 Gateway 与 Hindsight
+  test      执行 Retain / Recall / Reflect 端到端验收
+  logs      查看最近服务日志
+  restart   重启 Gateway
+  config    显示配置文件位置与非敏感配置
+  help      显示帮助
+EOF
+}
+
+load_env(){
+  [[ -f "$ENV_FILE" ]] || { echo "[✗] 找不到 $ENV_FILE" >&2; exit 1; }
+  set -a; source "$ENV_FILE"; set +a
+}
+
+case "${1:-help}" in
+  status)
+    systemctl --no-pager --full status "$SERVICE" || true
+    ;;
+  health)
+    load_env
+    base="http://${GATEWAY_HOST:-127.0.0.1}:${GATEWAY_PORT:-8787}"
+    echo '========== Memory Gateway 健康检查 =========='
+    if curl -fsS --max-time 10 "$base/health"; then echo; else echo '[✗] Gateway 不可访问' >&2; exit 1; fi
+    ;;
+  test)
+    load_env
+    export GATEWAY_BASE_URL="http://${GATEWAY_HOST:-127.0.0.1}:${GATEWAY_PORT:-8787}"
+    exec bash "$ROOT_DIR/scripts/03-smoke-test.sh"
+    ;;
+  logs)
+    exec journalctl -u "$SERVICE" -n "${MEMORY_GATEWAY_LOG_LINES:-100}" --no-pager
+    ;;
+  restart)
+    systemctl restart "$SERVICE"
+    systemctl is-active --quiet "$SERVICE" && echo '[✓] Memory Gateway 已重启，当前运行正常'
+    ;;
+  config)
+    load_env
+    echo "配置文件：$ENV_FILE"
+    echo "Gateway：${GATEWAY_HOST:-127.0.0.1}:${GATEWAY_PORT:-8787}"
+    echo "Hindsight：${HINDSIGHT_BASE_URL:-http://127.0.0.1:8888}"
+    echo "默认 Bank：${DEFAULT_BANK_ID:-default}"
+    echo 'API Token：已隐藏'
+    ;;
+  help|-h|--help) usage ;;
+  *) echo "未知命令：$1" >&2; usage; exit 2 ;;
+esac
