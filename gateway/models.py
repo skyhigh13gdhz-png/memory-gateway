@@ -28,3 +28,4 @@ class GatewayResponse(BaseModel):
     bank_id: str
     engine: str = "hindsight"
     data: Any
+    timing_ms: dict[str, float] = Field(default_factory=dict)
