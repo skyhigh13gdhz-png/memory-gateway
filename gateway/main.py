@@ -11,7 +11,7 @@ from .hindsight import hindsight
 from .models import GatewayResponse, RecallRequest, ReflectRequest, RetainRequest
 
 app = FastAPI(title="Memory Gateway", version="0.1.0")
-logger = logging.getLogger("memory-gateway")
+logger = logging.getLogger("uvicorn.error")
 
 def content_fingerprint(content: str) -> dict:
     raw = content.encode("utf-8")
