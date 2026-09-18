@@ -35,7 +35,7 @@ async def health() -> dict:
 async def retain(req: RetainRequest) -> GatewayResponse:
     started = time.perf_counter()
     bank_id = bank(req.bank_id)
-    metadata = {**req.metadata, "gateway_client_id": req.client_id}
+    metadata = {**req.metadata, "gateway_client_id": req.client_id, "speaker": req.speaker}
     engine_started = time.perf_counter()
     try:
         data = await hindsight.retain(bank_id, req.content, metadata)
@@ -51,7 +51,7 @@ async def recall(req: RecallRequest) -> GatewayResponse:
     bank_id = bank(req.bank_id)
     engine_started = time.perf_counter()
     try:
-        data = await hindsight.recall(bank_id, req.query, req.max_results)
+        data = await hindsight.recall(bank_id, req.query, req.max_results, req.speaker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"memory engine error: {type(exc).__name__}") from exc
     engine_ms = elapsed_ms(engine_started)
@@ -64,7 +64,7 @@ async def reflect(req: ReflectRequest) -> GatewayResponse:
     bank_id = bank(req.bank_id)
     engine_started = time.perf_counter()
     try:
-        data = await hindsight.reflect(bank_id, req.query)
+        data = await hindsight.reflect(bank_id, req.query, req.speaker)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"memory engine error: {type(exc).__name__}") from exc
     engine_ms = elapsed_ms(engine_started)
