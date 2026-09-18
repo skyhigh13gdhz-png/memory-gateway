@@ -30,7 +30,12 @@ class HindsightAdapter:
             return False
 
     async def retain(self, bank_id: str, content: str, metadata: dict[str, Any]) -> Any:
-        item: dict[str, Any] = {"content": content}
+        speaker = str(metadata.get("speaker", "unknown"))
+        item: dict[str, Any] = {
+            "content": content,
+            "context": f"The speaker of this memory is {speaker}.",
+            "tags": [f"speaker:{speaker}"],
+        }
         if metadata:
             item["metadata"] = metadata
         return await self._request(
@@ -45,7 +50,11 @@ class HindsightAdapter:
         data = await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/memories/recall",
-            json={"query": query, "context": f"Current speaker: {speaker}"},
+            json={
+                "query": query,
+                "tags": [f"speaker:{speaker}"],
+                "tags_match": "all_strict",
+            },
         )
         if isinstance(data, dict) and isinstance(data.get("results"), list):
             data = {**data, "results": data["results"][:max_results]}
@@ -55,7 +64,12 @@ class HindsightAdapter:
         return await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/reflect",
-            json={"query": query, "context": f"Current speaker: {speaker}"},
+            json={
+                "query": query,
+                "context": f"Current speaker: {speaker}",
+                "tags": [f"speaker:{speaker}"],
+                "tags_match": "all_strict",
+            },
         )
 
 
