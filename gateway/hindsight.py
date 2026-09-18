@@ -1,8 +1,12 @@
+import hashlib
+import logging
 from typing import Any
 
 import httpx
 
 from .config import settings
+
+logger = logging.getLogger("memory-gateway.hindsight")
 
 
 class HindsightAdapter:
@@ -38,6 +42,11 @@ class HindsightAdapter:
         }
         if metadata:
             item["metadata"] = metadata
+        raw = content.encode("utf-8")
+        logger.info(
+            "event=retain_integrity stage=hindsight_outbound speaker=%s chars=%s bytes=%s sha256=%s tail_sha256=%s",
+            speaker, len(content), len(raw), hashlib.sha256(raw).hexdigest(), hashlib.sha256(raw[-256:]).hexdigest(),
+        )
         return await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/memories",
