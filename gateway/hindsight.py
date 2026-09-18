@@ -54,6 +54,8 @@ class HindsightAdapter:
                 "query": query,
                 "tags": [f"speaker:{speaker}"],
                 "tags_match": "all_strict",
+                "include_chunks": True,
+                "max_chunk_tokens": 4096,
             },
         )
         if isinstance(data, dict) and isinstance(data.get("results"), list):
