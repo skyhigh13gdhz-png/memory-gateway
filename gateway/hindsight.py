@@ -39,23 +39,23 @@ class HindsightAdapter:
             json={"items": [item]},
         )
 
-    async def recall(self, bank_id: str, query: str, max_results: int) -> Any:
+    async def recall(self, bank_id: str, query: str, max_results: int, speaker: str) -> Any:
         # max_results 属于 Gateway contract；Hindsight 当前已验收 payload 只保证 query。
         # 在确认 Hindsight 对结果数量参数的正式字段前，不把猜测字段透传到底层。
         data = await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/memories/recall",
-            json={"query": query},
+            json={"query": query, "context": f"Current speaker: {speaker}"},
         )
         if isinstance(data, dict) and isinstance(data.get("results"), list):
             data = {**data, "results": data["results"][:max_results]}
         return data
 
-    async def reflect(self, bank_id: str, query: str) -> Any:
+    async def reflect(self, bank_id: str, query: str, speaker: str) -> Any:
         return await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/reflect",
-            json={"query": query},
+            json={"query": query, "context": f"Current speaker: {speaker}"},
         )
 
 
