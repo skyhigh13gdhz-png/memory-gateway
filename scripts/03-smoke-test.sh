@@ -22,11 +22,11 @@ ok 'Gateway 与 Hindsight 健康链路正常'
 
 json_body(){ python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), ensure_ascii=False))' "$1"; }
 
-retain=$(python3 -c 'import json,sys; print(json.dumps({"content":sys.argv[1],"bank_id":sys.argv[2],"client_id":"gateway-smoke"},ensure_ascii=False))' "$FACT" "$BANK_ID")
+retain=$(python3 -c 'import json,sys; print(json.dumps({"content":sys.argv[1],"bank_id":sys.argv[2],"client_id":"gateway-smoke","speaker":"liangzai"},ensure_ascii=False))' "$FACT" "$BANK_ID")
 curl -fsS --max-time 180 -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -X POST "${BASE_URL}/v1/memories/retain" -d "$retain" >/tmp/gateway-retain.json || die 'Gateway Retain 失败。'
 ok 'Gateway Retain：通过'
 
-recall=$(python3 -c 'import json,sys; print(json.dumps({"query":sys.argv[1],"bank_id":sys.argv[2],"client_id":"gateway-smoke"},ensure_ascii=False))' "$MARKER" "$BANK_ID")
+recall=$(python3 -c 'import json,sys; print(json.dumps({"query":sys.argv[1],"bank_id":sys.argv[2],"client_id":"gateway-smoke","speaker":"liangzai"},ensure_ascii=False))' "$MARKER" "$BANK_ID")
 curl -fsS --max-time 180 -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -X POST "${BASE_URL}/v1/memories/recall" -d "$recall" >/tmp/gateway-recall.json || die 'Gateway Recall 失败。'
 python3 - /tmp/gateway-recall.json "$EXPECTED" <<'PY' || { cat /tmp/gateway-recall.json; die 'Recall 未找回核心事实。'; }
 import json,sys
@@ -43,7 +43,7 @@ raise SystemExit(0 if any(expected in t for t in texts) else 1)
 PY
 ok 'Gateway Recall：通过'
 
-reflect=$(python3 -c 'import json,sys; print(json.dumps({"query":"根据记忆回答：Memory Gateway 相对 Hindsight 是什么角色？请简短回答。","bank_id":sys.argv[1],"client_id":"gateway-smoke"},ensure_ascii=False))' "$BANK_ID")
+reflect=$(python3 -c 'import json,sys; print(json.dumps({"query":"根据记忆回答：Memory Gateway 相对 Hindsight 是什么角色？请简短回答。","bank_id":sys.argv[1],"client_id":"gateway-smoke","speaker":"liangzai"},ensure_ascii=False))' "$BANK_ID")
 curl -fsS --max-time 180 -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -X POST "${BASE_URL}/v1/memories/reflect" -d "$reflect" >/tmp/gateway-reflect.json || die 'Gateway Reflect 失败。'
 python3 - /tmp/gateway-reflect.json <<'PY' || { cat /tmp/gateway-reflect.json; die 'Reflect 返回内容不符合验收语义。'; }
 import json,sys
