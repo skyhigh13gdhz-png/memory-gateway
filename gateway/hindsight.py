@@ -6,7 +6,7 @@ import httpx
 
 from .config import settings
 
-logger = logging.getLogger("memory-gateway.hindsight")
+logger = logging.getLogger("uvicorn.error")
 
 
 class HindsightAdapter:
