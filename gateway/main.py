@@ -1,3 +1,5 @@
+import hashlib
+import logging
 import secrets
 import time
 
@@ -9,6 +11,16 @@ from .hindsight import hindsight
 from .models import GatewayResponse, RecallRequest, ReflectRequest, RetainRequest
 
 app = FastAPI(title="Memory Gateway", version="0.1.0")
+logger = logging.getLogger("memory-gateway")
+
+def content_fingerprint(content: str) -> dict:
+    raw = content.encode("utf-8")
+    return {
+        "chars": len(content),
+        "bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "tail_sha256": hashlib.sha256(raw[-256:]).hexdigest(),
+    }
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
@@ -36,6 +48,11 @@ async def retain(req: RetainRequest) -> GatewayResponse:
     started = time.perf_counter()
     bank_id = bank(req.bank_id)
     metadata = {**req.metadata, "gateway_client_id": req.client_id, "speaker": req.speaker}
+    fp = content_fingerprint(req.content)
+    logger.info(
+        "event=retain_integrity stage=gateway_received speaker=%s chars=%s bytes=%s sha256=%s tail_sha256=%s",
+        req.speaker, fp["chars"], fp["bytes"], fp["sha256"], fp["tail_sha256"],
+    )
     engine_started = time.perf_counter()
     try:
         data = await hindsight.retain(bank_id, req.content, metadata)
