@@ -6,6 +6,8 @@
 
 **首次安装 / 升级：运行仓库根目录 `bootstrap.sh`。** 它负责选择 GitHub/Gitee 源、生成本机 Token、网络与 Hindsight 预检、安装服务、启动并自动执行 Retain / Recall / Reflect 验收。
 
+源码探测使用 `git ls-remote`，所有 Git 操作均有硬超时；已有源码目录如存在未提交修改会明确退出，不会通过 `reset --hard` 静默覆盖。
+
 在中国大陆服务器，如果已经同步好 Gitee 镜像，可直接：
 
 ```bash
