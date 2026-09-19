@@ -8,6 +8,8 @@
 
 源码探测使用 `git ls-remote`，所有 Git 操作均有硬超时；已有源码目录如存在未提交修改会明确退出，不会通过 `reset --hard` 静默覆盖。
 
+Python 环境会实际检查 `ensurepip`，因此 Ubuntu 26.04 等系统即使 `python3 -m venv --help` 可用、但缺少 `python3-venv`，安装器也会自动补齐依赖。
+
 在中国大陆服务器，如果已经同步好 Gitee 镜像，可直接：
 
 ```bash

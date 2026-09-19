@@ -14,14 +14,17 @@ die(){ printf '[✗] %s\n' "$*" >&2; exit 1; }
 [[ -f "${ROOT_DIR}/.env" ]] || die "缺少 ${ROOT_DIR}/.env。"
 
 # shellcheck disable=SC1090
-set -a; source "${ROOT_DIR}/.env"; set +a
+set -a
+# shellcheck disable=SC1091
+source "${ROOT_DIR}/.env"
+set +a
 GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
 GATEWAY_PORT="${GATEWAY_PORT:-8787}"
 
 # Gateway 只依赖 Ubuntu 官方仓中的 Python。服务器上已有的 Docker 等第三方
 # apt source 与本组件无关；若它临时不可达，不应让 Gateway 安装输出误导性警告。
 # 已安装依赖时完全跳过 apt；缺依赖时仅启用 Ubuntu 官方源完成安装。
-if command -v python3 >/dev/null 2>&1 && python3 -m venv --help >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import ensurepip' >/dev/null 2>&1; then
   ok '系统 Python / venv 已准备，无需刷新 apt 索引'
 else
   log '安装 Python 运行依赖（仅使用 Ubuntu 官方 apt 源）'
@@ -42,6 +45,7 @@ else
   DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTS[@]}" install -y -qq python3 python3-venv >/dev/null || die 'python3/python3-venv 安装失败。'
 fi
 
+rm -rf "$VENV_DIR"
 python3 -m venv "$VENV_DIR"
 "${VENV_DIR}/bin/pip" install -q --upgrade pip
 "${VENV_DIR}/bin/pip" install -q -r "${ROOT_DIR}/requirements.txt"
