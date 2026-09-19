@@ -115,3 +115,11 @@ GitHub 是唯一可写 Source of Truth；Gitee 只作为中国大陆部署镜像
 ## 当前阶段
 
 Gateway V1 Retain/Recall/Reflect 已在正式机通过验收。V2.1 当前增加最薄的 Document/timestamp/Patch 封装，单元测试通过；部署到正式机后仍需在隔离 audit bank 执行端到端验收，再交给 MCP 暴露。
+
+V2.1 正式机隔离 bank 验收入口：
+
+```bash
+sudo bash -c 'set -a; source /opt/src/memory-gateway/.env; set +a; python3 /opt/src/memory-gateway/scripts/04-document-smoke-test.py'
+```
+
+已验证 Document List/Get、`42 → 52` Patch、重复 Patch `409 PATCH_CONFLICT` 和错误 speaker `404`。
