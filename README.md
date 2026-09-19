@@ -76,10 +76,33 @@ Gateway Server → 私网 / VPN / HTTPS → Hindsight Server
 POST /v1/memories/retain
 POST /v1/memories/recall
 POST /v1/memories/reflect
+GET  /v1/documents
+GET  /v1/documents/{document_id}
+POST /v1/documents/{document_id}/patch
 GET  /health
 ```
 
-前三个记忆接口要求 `Authorization: Bearer <Gateway Token>`。客户端只依赖 Gateway contract；Hindsight 私有 API 仅存在于 adapter 内。
+除 `/health` 外均要求 `Authorization: Bearer <Gateway Token>`。客户端只依赖 Gateway contract；Hindsight API 仅存在于 adapter 内。
+
+`memory_retain` 在保持旧客户端兼容的前提下支持可选 `document_id`、`timestamp` 和 `update_mode=replace|append`。Document List/Get 强制用 `speaker:<id>` tag 做范围约束。
+
+Document Patch 是确定性 compare-and-swap：
+
+```json
+{
+  "speaker": "liangzai",
+  "expected_text": "CRV 止损亏损 42 美元。",
+  "replacement_text": "CRV 止损亏损 52 美元。",
+  "reason": "user_correction"
+}
+```
+
+- `expected_text` 不存在时返回 `409 PATCH_CONFLICT`；
+- 出现多次时返回 `409 PATCH_AMBIGUOUS`；
+- 只在精确出现一次时使用同 `document_id` replace；
+- 不让 LLM 重写整篇 Document。
+
+Hindsight 0.10.0 实测发现：运行中的异步 reprocess 可在 delete 后重建 Document。因此 Gateway 当前刻意不暴露 delete/reprocess，等操作序列化契约完成后再增加。
 
 ## 仓库与安全边界
 
@@ -91,6 +114,4 @@ GitHub 是唯一可写 Source of Truth；Gitee 只作为中国大陆部署镜像
 
 ## 当前阶段
 
-Gateway MVP 已具备代码级最小闭环：统一 API、Hindsight adapter、Bearer Token、client/bank 基础字段、独立 bootstrap、systemd 服务、统一 CLI 和端到端 smoke test。
-
-下一阶段是在已通过 Hindsight 验收的旧服务器进行真实 runtime 验证。**在服务器实际通过 `memory-gateway test` 之前，不把 MVP 标记为生产可用。**
+Gateway V1 Retain/Recall/Reflect 已在正式机通过验收。V2.1 当前增加最薄的 Document/timestamp/Patch 封装，单元测试通过；部署到正式机后仍需在隔离 audit bank 执行端到端验收，再交给 MCP 暴露。

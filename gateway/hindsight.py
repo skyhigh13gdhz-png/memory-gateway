@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -33,15 +36,31 @@ class HindsightAdapter:
         except httpx.HTTPError:
             return False
 
-    async def retain(self, bank_id: str, content: str, metadata: dict[str, Any]) -> Any:
+    async def retain(
+        self,
+        bank_id: str,
+        content: str,
+        metadata: dict[str, Any],
+        *,
+        document_id: str | None = None,
+        timestamp: str | None = None,
+        update_mode: str | None = None,
+        tags: list[str] | None = None,
+    ) -> Any:
         speaker = str(metadata.get("speaker", "unknown"))
         item: dict[str, Any] = {
             "content": content,
             "context": f"The speaker of this memory is {speaker}.",
-            "tags": [f"speaker:{speaker}"],
+            "tags": tags if tags is not None else [f"speaker:{speaker}"],
         }
         if metadata:
             item["metadata"] = metadata
+        if document_id is not None:
+            item["document_id"] = document_id
+        if timestamp is not None:
+            item["timestamp"] = timestamp
+        if update_mode is not None:
+            item["update_mode"] = update_mode
         raw = content.encode("utf-8")
         logger.info(
             "event=retain_integrity stage=hindsight_outbound speaker=%s chars=%s bytes=%s sha256=%s tail_sha256=%s",
@@ -52,6 +71,28 @@ class HindsightAdapter:
             f"/v1/default/banks/{bank_id}/memories",
             json={"items": [item]},
         )
+
+    async def list_documents(
+        self,
+        bank_id: str,
+        speaker: str,
+        *,
+        query: str | None,
+        limit: int,
+        offset: int,
+    ) -> Any:
+        params: dict[str, Any] = {
+            "tags": [f"speaker:{speaker}"],
+            "tags_match": "all_strict",
+            "limit": limit,
+            "offset": offset,
+        }
+        if query:
+            params["q"] = query
+        return await self._request("GET", f"/v1/default/banks/{bank_id}/documents", params=params)
+
+    async def get_document(self, bank_id: str, document_id: str) -> Any:
+        return await self._request("GET", f"/v1/default/banks/{bank_id}/documents/{quote(document_id, safe='')}")
 
     async def recall(self, bank_id: str, query: str, max_results: int, speaker: str) -> Any:
         # max_results 属于 Gateway contract；Hindsight 当前已验收 payload 只保证 query。
