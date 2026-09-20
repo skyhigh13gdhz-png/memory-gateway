@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import secrets
 import time
@@ -25,6 +26,22 @@ def content_fingerprint(content: str) -> dict:
         "sha256": hashlib.sha256(raw).hexdigest(),
         "tail_sha256": hashlib.sha256(raw[-256:]).hexdigest(),
     }
+
+
+def normalize_metadata(metadata: dict) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for key, value in metadata.items():
+        if isinstance(value, str):
+            normalized[str(key)] = value
+        elif value is None:
+            normalized[str(key)] = "null"
+        elif isinstance(value, bool):
+            normalized[str(key)] = "true" if value else "false"
+        elif isinstance(value, (int, float)):
+            normalized[str(key)] = str(value)
+        else:
+            normalized[str(key)] = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return normalized
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
@@ -62,7 +79,9 @@ async def health() -> dict:
 async def retain(req: RetainRequest) -> GatewayResponse:
     started = time.perf_counter()
     bank_id = bank(req.bank_id)
-    metadata = {**req.metadata, "gateway_client_id": req.client_id, "speaker": req.speaker}
+    metadata = normalize_metadata(
+        {**req.metadata, "gateway_client_id": req.client_id, "speaker": req.speaker}
+    )
     fp = content_fingerprint(req.content)
     logger.info(
         "event=retain_integrity stage=gateway_received speaker=%s chars=%s bytes=%s sha256=%s tail_sha256=%s",

@@ -88,6 +88,8 @@ GET  /health
 
 `update_mode` 只在同时指定 `document_id` 时有意义。客户端在新建记录时误传 `append/replace` 会被 Gateway 归一化为普通新建，避免 Hindsight 因缺少目标 Document 返回错误。
 
+Gateway 会把 metadata 的布尔、数字、null 和结构化值稳定转成字符串，再送给只接受字符串 metadata 的 Hindsight。
+
 Document Patch 是确定性 compare-and-swap：
 
 ```json

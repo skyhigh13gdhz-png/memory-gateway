@@ -3,13 +3,19 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from gateway.main import app
+from gateway.main import app, normalize_metadata
 
 
 AUTH = {"Authorization": "Bearer test-token"}
 
 
 class DocumentApiTests(unittest.TestCase):
+    def test_metadata_is_normalized_to_hindsight_strings(self) -> None:
+        self.assertEqual(
+            normalize_metadata({"text": "ok", "flag": True, "count": 3, "none": None, "data": {"b": 2, "a": 1}}),
+            {"text": "ok", "flag": "true", "count": "3", "none": "null", "data": '{"a":1,"b":2}'},
+        )
+
     @patch("gateway.main.hindsight")
     def test_retain_ignores_update_mode_without_document_id(self, hindsight: AsyncMock) -> None:
         hindsight.retain = AsyncMock(return_value={"success": True})
