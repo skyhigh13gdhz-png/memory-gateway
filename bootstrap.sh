@@ -17,13 +17,13 @@ log '检查源码网络（所有 Git 操作均有硬超时）'
 SOURCE_PROXY=""
 git_probe(){ timeout 12s git "$@" >/dev/null 2>&1; }
 git_probe_proxy(){ timeout 12s git -c "http.proxy=$LOCAL_HTTP_PROXY" -c "https.proxy=$LOCAL_HTTP_PROXY" "$@" >/dev/null 2>&1; }
-if git_probe ls-remote "$GITHUB_REPO" HEAD; then
-  SOURCE="$GITHUB_REPO"
-  ok 'GitHub：Git 直连可用，使用 GitHub Source of Truth'
-elif git_probe_proxy ls-remote "$GITHUB_REPO" HEAD; then
+if git_probe_proxy ls-remote "$GITHUB_REPO" HEAD; then
   SOURCE="$GITHUB_REPO"
   SOURCE_PROXY="$LOCAL_HTTP_PROXY"
-  ok "GitHub：通过本机代理可用 (${LOCAL_HTTP_PROXY})"
+  ok "GitHub：优先使用本机代理 (${LOCAL_HTTP_PROXY})"
+elif git_probe ls-remote "$GITHUB_REPO" HEAD; then
+  SOURCE="$GITHUB_REPO"
+  ok 'GitHub：本机代理不可用，Git 直连可用'
 elif git_probe ls-remote "$GITEE_REPO" HEAD; then
   SOURCE="$GITEE_REPO"
   warn 'GitHub 直连和本机代理均不可用，使用 Gitee 只读部署镜像'
