@@ -21,7 +21,7 @@ class RecallRequest(BaseModel):
     bank_id: str | None = None
     client_id: str = Field(default="unknown", min_length=1)
     speaker: str = Field(default="unknown", min_length=1)
-    max_results: int = Field(default=10, ge=1, le=100)
+    max_results: int = Field(default=20, ge=1, le=100)
 
 
 class ReflectRequest(BaseModel):
