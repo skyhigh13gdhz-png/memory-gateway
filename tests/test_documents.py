@@ -44,6 +44,40 @@ class DocumentApiTests(unittest.TestCase):
         )
 
     @patch("gateway.main.hindsight")
+    def test_document_list_filters_event_date_and_includes_original_text(self, hindsight: AsyncMock) -> None:
+        summaries = [
+            {"id": "doc-16", "retain_params": {"event_date": "2026-09-16T00:00:00+08:00"}},
+            {"id": "doc-17", "retain_params": {"event_date": "2026-09-17T00:00:00+08:00"}},
+            {"id": "doc-18", "retain_params": {"event_date": "2026-09-18T12:00:00+08:00"}},
+        ]
+        hindsight.list_documents = AsyncMock(
+            return_value={"items": summaries, "total": 3, "limit": 1000, "offset": 0}
+        )
+        hindsight.get_document = AsyncMock(return_value={
+            "id": "doc-17",
+            "original_text": "中午吃炒面，晚上吃花卷和烤鸭。",
+            "tags": ["speaker:liangzai"],
+            "retain_params": {"event_date": "2026-09-17T00:00:00+08:00"},
+        })
+        response = self.client.get(
+            "/v1/documents?speaker=liangzai&date_from=2026-09-17&date_to=2026-09-17&include_text=true",
+            headers=AUTH,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["items"][0]["id"], "doc-17")
+        self.assertIn("炒面", payload["items"][0]["original_text"])
+        hindsight.get_document.assert_awaited_once_with("default", "doc-17")
+
+    def test_document_list_rejects_reversed_date_range(self) -> None:
+        response = self.client.get(
+            "/v1/documents?speaker=liangzai&date_from=2026-09-18&date_to=2026-09-17",
+            headers=AUTH,
+        )
+        self.assertEqual(response.status_code, 422)
+
+    @patch("gateway.main.hindsight")
     def test_patch_replaces_exactly_one_fragment(self, hindsight: AsyncMock) -> None:
         before = {
             "id": "doc-1",

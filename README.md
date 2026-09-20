@@ -86,6 +86,8 @@ GET  /health
 
 `memory_retain` 在保持旧客户端兼容的前提下支持可选 `document_id`、`timestamp` 和 `update_mode=replace|append`。Document List/Get 强制用 `speaker:<id>` tag 做范围约束。
 
+`GET /v1/documents` 支持 `date_from`、`date_to`（均包含）和 `include_text=true`。日期范围查询按 `retain_params.event_date` 确定性过滤，并可返回完整原文；它用于日报、周报和范围统计，不能由语义 Recall/Reflect 替代。
+
 `update_mode` 只在同时指定 `document_id` 时有意义。客户端在新建记录时误传 `append/replace` 会被 Gateway 归一化为普通新建，避免 Hindsight 因缺少目标 Document 返回错误。
 
 Gateway 会把 metadata 的布尔、数字、null 和结构化值稳定转成字符串，再送给只接受字符串 metadata 的 Hindsight。

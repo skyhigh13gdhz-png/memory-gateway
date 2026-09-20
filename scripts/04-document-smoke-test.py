@@ -59,6 +59,19 @@ def main() -> int:
     if document_id not in ids:
         raise RuntimeError("new document is absent from scoped listing")
 
+    range_query = urllib.parse.urlencode({
+        "speaker": speaker,
+        "bank_id": bank,
+        "date_from": "2026-09-19",
+        "date_to": "2026-09-19",
+        "include_text": "true",
+        "limit": 10,
+    })
+    _, ranged = call("GET", f"{base}/v1/documents?{range_query}")
+    ranged_items = ranged["data"]["items"]
+    if len(ranged_items) != 1 or ranged_items[0].get("original_text") != original:
+        raise RuntimeError("date range listing did not return the complete original document")
+
     doc_query = urllib.parse.urlencode({"speaker": speaker, "bank_id": bank})
     _, document = call("GET", f"{base}/v1/documents/{document_id}?{doc_query}")
     if document["data"]["original_text"] != original:
@@ -104,6 +117,7 @@ def main() -> int:
                 "bank_id": bank,
                 "document_id": document_id,
                 "list_get": "PASS",
+                "date_range_with_text": "PASS",
                 "patch_42_to_52": "PASS",
                 "repeat_patch_status": conflict_status,
                 "repeat_patch_detail": conflict.get("detail"),

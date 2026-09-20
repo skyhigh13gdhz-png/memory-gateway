@@ -6,6 +6,7 @@ import json
 import logging
 import secrets
 import time
+from datetime import date
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -69,6 +70,16 @@ def engine_error(exc: httpx.HTTPError) -> HTTPException:
     return HTTPException(status_code=502, detail=f"memory engine error: {type(exc).__name__}")
 
 
+def document_event_day(document: dict) -> date | None:
+    value = (document.get("retain_params") or {}).get("event_date")
+    if not isinstance(value, str) or len(value) < 10:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
 @app.get("/health")
 async def health() -> dict:
     engine_ok = await hindsight.health()
@@ -129,15 +140,57 @@ async def list_documents(
     q: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    include_text: bool = False,
 ) -> GatewayResponse:
     if not 1 <= limit <= 1000 or offset < 0:
         raise HTTPException(status_code=422, detail="limit must be 1..1000 and offset must be >= 0")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="date_from must be <= date_to")
     started = time.perf_counter()
     selected_bank = bank(bank_id)
     try:
-        data = await hindsight.list_documents(
-            selected_bank, speaker, query=q, limit=limit, offset=offset
-        )
+        if date_from is not None or date_to is not None:
+            all_items: list[dict] = []
+            upstream_offset = 0
+            while True:
+                page = await hindsight.list_documents(
+                    selected_bank, speaker, query=q, limit=1000, offset=upstream_offset
+                )
+                page_items = list(page.get("items") or [])
+                all_items.extend(page_items)
+                upstream_total = int(page.get("total", len(all_items)))
+                if not page_items or len(all_items) >= upstream_total:
+                    break
+                upstream_offset += len(page_items)
+            filtered = []
+            for item in all_items:
+                event_day = document_event_day(item)
+                if event_day is None:
+                    continue
+                if date_from is not None and event_day < date_from:
+                    continue
+                if date_to is not None and event_day > date_to:
+                    continue
+                filtered.append(item)
+            data = {
+                "items": filtered[offset:offset + limit],
+                "total": len(filtered),
+                "limit": limit,
+                "offset": offset,
+            }
+        else:
+            data = await hindsight.list_documents(
+                selected_bank, speaker, query=q, limit=limit, offset=offset
+            )
+        if include_text:
+            hydrated = []
+            for item in data.get("items") or []:
+                document = await hindsight.get_document(selected_bank, str(item["id"]))
+                require_speaker(document, speaker)
+                hydrated.append(document)
+            data = {**data, "items": hydrated}
     except httpx.HTTPError as exc:
         raise engine_error(exc) from exc
     return GatewayResponse(bank_id=selected_bank, data=data, timing_ms={"gateway_total": elapsed_ms(started)})
