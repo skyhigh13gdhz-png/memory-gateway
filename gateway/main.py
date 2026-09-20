@@ -69,6 +69,13 @@ async def retain(req: RetainRequest) -> GatewayResponse:
         req.speaker, fp["chars"], fp["bytes"], fp["sha256"], fp["tail_sha256"],
     )
     engine_started = time.perf_counter()
+    effective_update_mode = req.update_mode if req.document_id is not None else None
+    if req.update_mode is not None and req.document_id is None:
+        logger.info(
+            "event=retain_normalized speaker=%s requested_update_mode=%s reason=missing_document_id",
+            req.speaker,
+            req.update_mode,
+        )
     try:
         data = await hindsight.retain(
             bank_id,
@@ -76,9 +83,21 @@ async def retain(req: RetainRequest) -> GatewayResponse:
             metadata,
             document_id=req.document_id,
             timestamp=req.timestamp,
-            update_mode=req.update_mode,
+            update_mode=effective_update_mode,
         )
     except httpx.HTTPError as exc:
+        upstream_status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        logger.warning(
+            "event=retain_failed speaker=%s document_id_present=%s timestamp_present=%s "
+            "requested_update_mode=%s effective_update_mode=%s upstream_status=%s error_type=%s",
+            req.speaker,
+            req.document_id is not None,
+            req.timestamp is not None,
+            req.update_mode,
+            effective_update_mode,
+            upstream_status,
+            type(exc).__name__,
+        )
         raise HTTPException(status_code=502, detail=f"memory engine error: {type(exc).__name__}") from exc
     engine_ms = elapsed_ms(engine_started)
     return GatewayResponse(bank_id=bank_id, data=data, timing_ms={"hindsight": engine_ms, "gateway_total": elapsed_ms(started)})

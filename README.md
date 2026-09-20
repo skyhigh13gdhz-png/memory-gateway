@@ -86,6 +86,8 @@ GET  /health
 
 `memory_retain` 在保持旧客户端兼容的前提下支持可选 `document_id`、`timestamp` 和 `update_mode=replace|append`。Document List/Get 强制用 `speaker:<id>` tag 做范围约束。
 
+`update_mode` 只在同时指定 `document_id` 时有意义。客户端在新建记录时误传 `append/replace` 会被 Gateway 归一化为普通新建，避免 Hindsight 因缺少目标 Document 返回错误。
+
 Document Patch 是确定性 compare-and-swap：
 
 ```json

@@ -10,6 +10,18 @@ AUTH = {"Authorization": "Bearer test-token"}
 
 
 class DocumentApiTests(unittest.TestCase):
+    @patch("gateway.main.hindsight")
+    def test_retain_ignores_update_mode_without_document_id(self, hindsight: AsyncMock) -> None:
+        hindsight.retain = AsyncMock(return_value={"success": True})
+        response = self.client.post(
+            "/v1/memories/retain",
+            headers=AUTH,
+            json={"content": "new record", "speaker": "liangzai", "update_mode": "append"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(hindsight.retain.await_args.kwargs["document_id"])
+        self.assertIsNone(hindsight.retain.await_args.kwargs["update_mode"])
+
     def setUp(self) -> None:
         self.client = TestClient(app)
 
