@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +14,8 @@ class Settings(BaseSettings):
     hindsight_base_url: str = "http://127.0.0.1:8888"
     default_bank_id: str = "default"
     hindsight_timeout_seconds: float = 120.0
+    idempotency_db_path: Path = Path("/var/lib/memory-gateway/idempotency.sqlite3")
+    idempotency_automatic_window_seconds: int = 900
 
 
 settings = Settings()

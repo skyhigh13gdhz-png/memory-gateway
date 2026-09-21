@@ -13,11 +13,16 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 
 from .config import settings
 from .hindsight import hindsight
+from .idempotency import IdempotencyStore, request_digest
 from .models import DocumentPatchRequest, GatewayResponse, RecallRequest, ReflectRequest, RetainRequest
 
 app = FastAPI(title="Memory Gateway", version="0.1.0")
 logger = logging.getLogger("uvicorn.error")
 document_locks: dict[tuple[str, str], asyncio.Lock] = {}
+idempotency = IdempotencyStore(
+    settings.idempotency_db_path,
+    automatic_window_seconds=settings.idempotency_automatic_window_seconds,
+)
 
 def content_fingerprint(content: str) -> dict:
     raw = content.encode("utf-8")
@@ -149,6 +154,31 @@ async def retain(req: RetainRequest) -> GatewayResponse:
             req.speaker,
             req.update_mode,
         )
+    digest = request_digest({
+        "content": req.content,
+        "document_id": req.document_id,
+        "timestamp": req.timestamp,
+        "update_mode": effective_update_mode,
+        "async_processing": req.async_processing,
+        "metadata": metadata,
+    })
+    explicit_key = req.idempotency_key is not None
+    ledger_key = req.idempotency_key or f"auto:{digest}"
+    scope = f"{bank_id}:{req.speaker}:{req.client_id}"
+    decision = idempotency.begin(scope, ledger_key, digest, explicit=explicit_key)
+    if decision.action == "conflict":
+        raise HTTPException(status_code=409, detail="IDEMPOTENCY_KEY_CONFLICT")
+    if decision.action == "blocked":
+        raise HTTPException(
+            status_code=409,
+            detail=f"IDEMPOTENCY_REQUEST_{str(decision.state).upper()}",
+        )
+    if decision.action == "replay":
+        return GatewayResponse(
+            bank_id=bank_id,
+            data={**(decision.response or {}), "idempotency_replayed": True},
+            timing_ms={"gateway_total": elapsed_ms(started)},
+        )
     try:
         data = await hindsight.retain(
             bank_id,
@@ -160,6 +190,7 @@ async def retain(req: RetainRequest) -> GatewayResponse:
             async_processing=req.async_processing,
         )
     except httpx.HTTPError as exc:
+        idempotency.mark_uncertain(scope, ledger_key)
         upstream_status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
         logger.warning(
             "event=retain_failed speaker=%s document_id_present=%s timestamp_present=%s "
@@ -173,8 +204,20 @@ async def retain(req: RetainRequest) -> GatewayResponse:
             type(exc).__name__,
         )
         raise HTTPException(status_code=502, detail=f"memory engine error: {type(exc).__name__}") from exc
+    except Exception:
+        # The upstream may already have accepted the request. Preserve the
+        # at-most-once boundary instead of allowing an automatic blind retry.
+        idempotency.mark_uncertain(scope, ledger_key)
+        raise
+    if not isinstance(data, dict):
+        data = {"result": data}
+    idempotency.complete(scope, ledger_key, data)
     engine_ms = elapsed_ms(engine_started)
-    return GatewayResponse(bank_id=bank_id, data=data, timing_ms={"hindsight": engine_ms, "gateway_total": elapsed_ms(started)})
+    return GatewayResponse(
+        bank_id=bank_id,
+        data={**data, "idempotency_replayed": False},
+        timing_ms={"hindsight": engine_ms, "gateway_total": elapsed_ms(started)},
+    )
 
 
 @app.get("/v1/documents", response_model=GatewayResponse, dependencies=[Depends(require_token)])

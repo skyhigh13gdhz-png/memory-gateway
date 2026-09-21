@@ -15,6 +15,7 @@ class RetainRequest(BaseModel):
     timestamp: str | None = None
     update_mode: Literal["replace", "append"] | None = None
     async_processing: bool = False
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=200)
 
 
 class RecallRequest(BaseModel):

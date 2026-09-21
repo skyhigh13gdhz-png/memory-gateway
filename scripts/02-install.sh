@@ -20,6 +20,8 @@ source "${ROOT_DIR}/.env"
 set +a
 GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
 GATEWAY_PORT="${GATEWAY_PORT:-8787}"
+RUN_USER="${SUDO_USER:-root}"
+IDEMPOTENCY_DB_PATH="${IDEMPOTENCY_DB_PATH:-/var/lib/memory-gateway/idempotency.sqlite3}"
 
 # Gateway 只依赖 Ubuntu 官方仓中的 Python。服务器上已有的 Docker 等第三方
 # apt source 与本组件无关；若它临时不可达，不应让 Gateway 安装输出误导性警告。
@@ -51,6 +53,9 @@ python3 -m venv "$VENV_DIR"
 "${VENV_DIR}/bin/pip" install -q -r "${ROOT_DIR}/requirements.txt"
 ok 'Python 运行环境已准备'
 
+install -d -m 0750 -o "$RUN_USER" -g "$RUN_USER" "$(dirname "$IDEMPOTENCY_DB_PATH")"
+ok "Retain 幂等账本目录已准备：$(dirname "$IDEMPOTENCY_DB_PATH")"
+
 cat >"$SERVICE_FILE" <<EOF
 [Unit]
 Description=Memory Gateway
@@ -59,9 +64,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=${SUDO_USER:-root}
+User=${RUN_USER}
 WorkingDirectory=${ROOT_DIR}
 EnvironmentFile=${ROOT_DIR}/.env
+UMask=0077
 ExecStart=${VENV_DIR}/bin/uvicorn gateway.main:app --host ${GATEWAY_HOST} --port ${GATEWAY_PORT}
 Restart=on-failure
 RestartSec=3

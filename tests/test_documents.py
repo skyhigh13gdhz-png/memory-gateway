@@ -1,9 +1,12 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
 from gateway.main import app, normalize_metadata, operation_speakers, public_operation
+from gateway.idempotency import IdempotencyStore
 
 
 AUTH = {"Authorization": "Bearer test-token"}
@@ -61,7 +64,72 @@ class DocumentApiTests(unittest.TestCase):
         self.assertTrue(hindsight.retain.await_args.kwargs["async_processing"])
         self.assertEqual(response.json()["data"]["operation_id"], "op-1")
 
+    @patch("gateway.main.hindsight")
+    def test_retain_replays_same_explicit_key_without_second_write(self, hindsight: AsyncMock) -> None:
+        hindsight.retain = AsyncMock(return_value={"success": True, "operation_id": "op-1"})
+        payload = {
+            "content": "same natural record",
+            "speaker": "liangzai",
+            "idempotency_key": "chat-turn-20260922-001",
+            "async_processing": True,
+        }
+        first = self.client.post("/v1/memories/retain", headers=AUTH, json=payload)
+        second = self.client.post("/v1/memories/retain", headers=AUTH, json=payload)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["data"]["idempotency_replayed"])
+        self.assertTrue(second.json()["data"]["idempotency_replayed"])
+        self.assertEqual(hindsight.retain.await_count, 1)
+
+    @patch("gateway.main.hindsight")
+    def test_retain_rejects_key_reuse_for_different_content(self, hindsight: AsyncMock) -> None:
+        hindsight.retain = AsyncMock(return_value={"success": True})
+        base = {"speaker": "liangzai", "idempotency_key": "chat-turn-20260922-002"}
+        first = self.client.post(
+            "/v1/memories/retain", headers=AUTH, json={**base, "content": "first"}
+        )
+        second = self.client.post(
+            "/v1/memories/retain", headers=AUTH, json={**base, "content": "different"}
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.json()["detail"], "IDEMPOTENCY_KEY_CONFLICT")
+        self.assertEqual(hindsight.retain.await_count, 1)
+
+    @patch("gateway.main.hindsight")
+    def test_retain_automatically_deduplicates_immediate_identical_retry(self, hindsight: AsyncMock) -> None:
+        hindsight.retain = AsyncMock(return_value={"success": True, "operation_id": "op-auto"})
+        payload = {"content": "automatic retry", "speaker": "liangzai", "async_processing": True}
+        self.client.post("/v1/memories/retain", headers=AUTH, json=payload)
+        replay = self.client.post("/v1/memories/retain", headers=AUTH, json=payload)
+        self.assertEqual(replay.status_code, 200)
+        self.assertTrue(replay.json()["data"]["idempotency_replayed"])
+        self.assertEqual(hindsight.retain.await_count, 1)
+
+    @patch("gateway.main.hindsight")
+    def test_uncertain_upstream_result_blocks_blind_retry(self, hindsight: AsyncMock) -> None:
+        import httpx
+
+        hindsight.retain = AsyncMock(side_effect=httpx.ReadTimeout("timeout"))
+        payload = {
+            "content": "upstream may have accepted this",
+            "speaker": "liangzai",
+            "idempotency_key": "chat-turn-20260922-003",
+        }
+        first = self.client.post("/v1/memories/retain", headers=AUTH, json=payload)
+        second = self.client.post("/v1/memories/retain", headers=AUTH, json=payload)
+        self.assertEqual(first.status_code, 502)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.json()["detail"], "IDEMPOTENCY_REQUEST_UNCERTAIN")
+        self.assertEqual(hindsight.retain.await_count, 1)
+
     def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        store = IdempotencyStore(Path(self.temp_dir.name) / "idempotency.sqlite3")
+        self.idempotency_patch = patch("gateway.main.idempotency", store)
+        self.idempotency_patch.start()
+        self.addCleanup(self.idempotency_patch.stop)
+        self.addCleanup(self.temp_dir.cleanup)
         self.client = TestClient(app)
 
     @patch("gateway.main.hindsight")

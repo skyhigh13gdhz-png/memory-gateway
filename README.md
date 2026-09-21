@@ -85,7 +85,7 @@ GET  /health
 
 除 `/health` 外均要求 `Authorization: Bearer <Gateway Token>`。客户端只依赖 Gateway contract；Hindsight API 仅存在于 adapter 内。
 
-`memory_retain` 在保持旧客户端兼容的前提下支持可选 `document_id`、`timestamp` 和 `update_mode=replace|append`。Document List/Get 强制用 `speaker:<id>` tag 做范围约束。
+`memory_retain` 在保持旧客户端兼容的前提下支持可选 `document_id`、`timestamp`、`update_mode=replace|append` 和 `idempotency_key`。显式幂等键在同一 Bank / Speaker / Client 范围内持久有效；完全相同而未带键的请求默认在 15 分钟窗口内自动去重。相同键配不同内容返回 `409`，上游结果不确定时也拒绝盲目重投，避免因超时生成重复 Document。响应中的 `idempotency_replayed` 表示本次是否复用了先前结果。Document List/Get 强制用 `speaker:<id>` tag 做范围约束。
 
 异步 Retain 返回 `operation_id` 只表示已受理。`GET /v1/operations/{operation_id}?speaker=<id>` 用于区分 `pending`、`processing`、`completed`、`failed` 和 `cancelled`；仅返回稳定状态字段，不暴露 Hindsight task payload 或记忆正文。Gateway 会用 payload 内的 speaker 校验归属。`completed` 是权威终态；`last_error` 可能保留成功重试前的历史错误，不能单独用于判断最终失败。
 

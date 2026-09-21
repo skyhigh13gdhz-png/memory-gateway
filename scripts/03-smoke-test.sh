@@ -22,9 +22,16 @@ ok 'Gateway 与 Hindsight 健康链路正常'
 
 json_body(){ python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), ensure_ascii=False))' "$1"; }
 
-retain=$(python3 -c 'import json,sys; print(json.dumps({"content":sys.argv[1],"bank_id":sys.argv[2],"client_id":"gateway-smoke","speaker":"liangzai"},ensure_ascii=False))' "$FACT" "$BANK_ID")
+retain=$(python3 -c 'import json,sys; print(json.dumps({"content":sys.argv[1],"bank_id":sys.argv[2],"client_id":"gateway-smoke","speaker":"liangzai","idempotency_key":sys.argv[3]},ensure_ascii=False))' "$FACT" "$BANK_ID" "$MARKER")
 curl -fsS --max-time 180 -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -X POST "${BASE_URL}/v1/memories/retain" -d "$retain" >/tmp/gateway-retain.json || die 'Gateway Retain 失败。'
 ok 'Gateway Retain：通过'
+curl -fsS --max-time 20 -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -X POST "${BASE_URL}/v1/memories/retain" -d "$retain" >/tmp/gateway-retain-replay.json || die 'Gateway Retain 幂等重放失败。'
+python3 - /tmp/gateway-retain.json /tmp/gateway-retain-replay.json <<'PY' || die 'Retain 幂等响应不符合预期。'
+import json,sys
+first=json.load(open(sys.argv[1])); replay=json.load(open(sys.argv[2]))
+raise SystemExit(0 if first["data"].get("idempotency_replayed") is False and replay["data"].get("idempotency_replayed") is True else 1)
+PY
+ok 'Gateway Retain 持久化幂等：通过'
 
 recall=$(python3 -c 'import json,sys; print(json.dumps({"query":sys.argv[1],"bank_id":sys.argv[2],"client_id":"gateway-smoke","speaker":"liangzai"},ensure_ascii=False))' "$MARKER" "$BANK_ID")
 curl -fsS --max-time 180 -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -X POST "${BASE_URL}/v1/memories/recall" -d "$recall" >/tmp/gateway-recall.json || die 'Gateway Recall 失败。'
@@ -61,6 +68,7 @@ ok 'Gateway Reflect：通过'
 
 printf '\n========== Gateway 端到端验收 ==========\n'
 printf '[✓] Gateway → Hindsight Retain\n'
+printf '[✓] Retain 相同请求只写入一次\n'
 printf '[✓] Gateway → Hindsight Recall\n'
 printf '[✓] Gateway → Hindsight → LLM Reflect\n'
 printf '[✓] Bank：%s\n' "$BANK_ID"
