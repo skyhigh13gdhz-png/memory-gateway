@@ -114,6 +114,7 @@ async def retain(req: RetainRequest) -> GatewayResponse:
             document_id=req.document_id,
             timestamp=req.timestamp,
             update_mode=effective_update_mode,
+            async_processing=req.async_processing,
         )
     except httpx.HTTPError as exc:
         upstream_status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None

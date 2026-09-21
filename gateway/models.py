@@ -14,6 +14,7 @@ class RetainRequest(BaseModel):
     document_id: str | None = Field(default=None, min_length=1)
     timestamp: str | None = None
     update_mode: Literal["replace", "append"] | None = None
+    async_processing: bool = False
 
 
 class RecallRequest(BaseModel):

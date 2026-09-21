@@ -28,6 +28,18 @@ class DocumentApiTests(unittest.TestCase):
         self.assertIsNone(hindsight.retain.await_args.kwargs["document_id"])
         self.assertIsNone(hindsight.retain.await_args.kwargs["update_mode"])
 
+    @patch("gateway.main.hindsight")
+    def test_retain_can_request_fast_async_processing(self, hindsight: AsyncMock) -> None:
+        hindsight.retain = AsyncMock(return_value={"success": True, "async": True, "operation_id": "op-1"})
+        response = self.client.post(
+            "/v1/memories/retain",
+            headers=AUTH,
+            json={"content": "new record", "speaker": "liangzai", "async_processing": True},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(hindsight.retain.await_args.kwargs["async_processing"])
+        self.assertEqual(response.json()["data"]["operation_id"], "op-1")
+
     def setUp(self) -> None:
         self.client = TestClient(app)
 

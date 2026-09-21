@@ -46,6 +46,7 @@ class HindsightAdapter:
         timestamp: str | None = None,
         update_mode: str | None = None,
         tags: list[str] | None = None,
+        async_processing: bool = False,
     ) -> Any:
         speaker = str(metadata.get("speaker", "unknown"))
         item: dict[str, Any] = {
@@ -69,7 +70,7 @@ class HindsightAdapter:
         return await self._request(
             "POST",
             f"/v1/default/banks/{bank_id}/memories",
-            json={"items": [item]},
+            json={"items": [item], "async": async_processing},
         )
 
     async def list_documents(
