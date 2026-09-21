@@ -76,6 +76,7 @@ Gateway Server → 私网 / VPN / HTTPS → Hindsight Server
 POST /v1/memories/retain
 POST /v1/memories/recall
 POST /v1/memories/reflect
+GET  /v1/operations/{operation_id}
 GET  /v1/documents
 GET  /v1/documents/{document_id}
 POST /v1/documents/{document_id}/patch
@@ -85,6 +86,8 @@ GET  /health
 除 `/health` 外均要求 `Authorization: Bearer <Gateway Token>`。客户端只依赖 Gateway contract；Hindsight API 仅存在于 adapter 内。
 
 `memory_retain` 在保持旧客户端兼容的前提下支持可选 `document_id`、`timestamp` 和 `update_mode=replace|append`。Document List/Get 强制用 `speaker:<id>` tag 做范围约束。
+
+异步 Retain 返回 `operation_id` 只表示已受理。`GET /v1/operations/{operation_id}?speaker=<id>` 用于区分 `pending`、`processing`、`completed`、`failed` 和 `cancelled`；仅返回稳定状态字段，不暴露 Hindsight task payload 或记忆正文。Gateway 会用 payload 内的 speaker 校验归属。`completed` 是权威终态；`last_error` 可能保留成功重试前的历史错误，不能单独用于判断最终失败。
 
 `GET /v1/documents` 支持 `date_from`、`date_to`（均包含）和 `include_text=true`。日期范围查询按 `retain_params.event_date` 确定性过滤，并可返回完整原文；它用于日报、周报和范围统计，不能由语义 Recall/Reflect 替代。
 

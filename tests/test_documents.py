@@ -3,13 +3,34 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from gateway.main import app, normalize_metadata
+from gateway.main import app, normalize_metadata, operation_speakers, public_operation
 
 
 AUTH = {"Authorization": "Bearer test-token"}
 
 
 class DocumentApiTests(unittest.TestCase):
+    def test_operation_helpers_scope_and_strip_private_payload(self) -> None:
+        operation = {
+            "operation_id": "op-1",
+            "status": "completed",
+            "error_message": "earlier retry failed",
+            "retry_count": 2,
+            "task_payload": {
+                "contents": [{
+                    "content": "private diary text",
+                    "tags": ["speaker:liangzai"],
+                    "metadata": {"speaker": "liangzai"},
+                }],
+            },
+        }
+        self.assertEqual(operation_speakers(operation), {"liangzai"})
+        public = public_operation(operation)
+        self.assertTrue(public["terminal"])
+        self.assertEqual(public["last_error"], "earlier retry failed")
+        self.assertNotIn("task_payload", public)
+        self.assertNotIn("private diary text", str(public))
+
     def test_metadata_is_normalized_to_hindsight_strings(self) -> None:
         self.assertEqual(
             normalize_metadata({"text": "ok", "flag": True, "count": 3, "none": None, "data": {"b": 2, "a": 1}}),
@@ -143,6 +164,59 @@ class DocumentApiTests(unittest.TestCase):
         response = self.client.get(
             "/v1/documents/doc-1?speaker=liangzai&bank_id=test-bank",
             headers=AUTH,
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @patch("gateway.main.hindsight")
+    def test_operation_get_is_scoped_and_sanitized(self, hindsight: AsyncMock) -> None:
+        hindsight.get_operation = AsyncMock(return_value={
+            "operation_id": "op-1",
+            "status": "completed",
+            "operation_type": "retain",
+            "created_at": "2026-09-21T12:00:00Z",
+            "updated_at": "2026-09-21T12:01:00Z",
+            "completed_at": "2026-09-21T12:01:00Z",
+            "error_message": "timeout before retry",
+            "retry_count": 1,
+            "task_payload": {"contents": [{
+                "content": "private text",
+                "metadata": {"speaker": "liangzai"},
+                "tags": ["speaker:liangzai"],
+            }]},
+        })
+        response = self.client.get(
+            "/v1/operations/op-1?speaker=liangzai&bank_id=test-bank", headers=AUTH
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["status"], "completed")
+        self.assertTrue(data["terminal"])
+        self.assertEqual(data["last_error"], "timeout before retry")
+        self.assertNotIn("task_payload", data)
+        self.assertNotIn("private text", response.text)
+        hindsight.get_operation.assert_awaited_once_with(
+            "test-bank", "op-1", include_payload=True
+        )
+
+    @patch("gateway.main.hindsight")
+    def test_operation_get_hides_other_speaker(self, hindsight: AsyncMock) -> None:
+        hindsight.get_operation = AsyncMock(return_value={
+            "operation_id": "op-1",
+            "status": "processing",
+            "task_payload": {"contents": [{"metadata": {"speaker": "monica"}}]},
+        })
+        response = self.client.get(
+            "/v1/operations/op-1?speaker=liangzai", headers=AUTH
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @patch("gateway.main.hindsight")
+    def test_operation_get_hides_not_found(self, hindsight: AsyncMock) -> None:
+        hindsight.get_operation = AsyncMock(return_value={
+            "operation_id": "missing", "status": "not_found", "task_payload": None
+        })
+        response = self.client.get(
+            "/v1/operations/missing?speaker=liangzai", headers=AUTH
         )
         self.assertEqual(response.status_code, 404)
 

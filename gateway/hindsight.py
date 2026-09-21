@@ -95,6 +95,13 @@ class HindsightAdapter:
     async def get_document(self, bank_id: str, document_id: str) -> Any:
         return await self._request("GET", f"/v1/default/banks/{bank_id}/documents/{quote(document_id, safe='')}")
 
+    async def get_operation(self, bank_id: str, operation_id: str, *, include_payload: bool = False) -> Any:
+        return await self._request(
+            "GET",
+            f"/v1/default/banks/{bank_id}/operations/{quote(operation_id, safe='')}",
+            params={"include_payload": str(include_payload).lower()},
+        )
+
     async def recall(self, bank_id: str, query: str, max_results: int, speaker: str) -> Any:
         # max_results 属于 Gateway contract；Hindsight 当前已验收 payload 只保证 query。
         # 在确认 Hindsight 对结果数量参数的正式字段前，不把猜测字段透传到底层。

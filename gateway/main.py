@@ -64,6 +64,49 @@ def require_speaker(document: dict, speaker: str) -> None:
         raise HTTPException(status_code=404, detail="document not found")
 
 
+def operation_speakers(operation: dict) -> set[str]:
+    """Read speaker ownership from a Hindsight task payload without exposing it."""
+    payload = operation.get("task_payload")
+    if not isinstance(payload, dict):
+        return set()
+    speakers: set[str] = set()
+    contents = payload.get("contents")
+    if not isinstance(contents, list):
+        contents = [payload]
+    for item in contents:
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict) and isinstance(metadata.get("speaker"), str):
+            speakers.add(metadata["speaker"])
+        for tag in item.get("tags") or []:
+            if isinstance(tag, str) and tag.startswith("speaker:"):
+                speakers.add(tag.removeprefix("speaker:"))
+    return speakers
+
+
+def public_operation(operation: dict) -> dict:
+    """Return the stable, non-content operation contract exposed by Gateway."""
+    status = str(operation.get("status", "not_found"))
+    terminal = status in {"completed", "failed", "cancelled", "not_found"}
+    return {
+        "operation_id": operation.get("operation_id"),
+        "status": status,
+        "terminal": terminal,
+        "operation_type": operation.get("operation_type"),
+        "created_at": operation.get("created_at"),
+        "updated_at": operation.get("updated_at"),
+        "completed_at": operation.get("completed_at"),
+        # Hindsight can retain an earlier retry error after eventual success.
+        # Treat this as history; status is the authoritative current outcome.
+        "last_error": operation.get("error_message"),
+        "retry_count": operation.get("retry_count"),
+        "next_retry_at": operation.get("next_retry_at"),
+        "progress": operation.get("progress"),
+        "child_operations": operation.get("child_operations"),
+    }
+
+
 def engine_error(exc: httpx.HTTPError) -> HTTPException:
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 404:
         return HTTPException(status_code=404, detail="document not found")
@@ -207,6 +250,30 @@ async def get_document(document_id: str, speaker: str, bank_id: str | None = Non
         raise engine_error(exc) from exc
     require_speaker(data, speaker)
     return GatewayResponse(bank_id=selected_bank, data=data, timing_ms={"gateway_total": elapsed_ms(started)})
+
+
+@app.get("/v1/operations/{operation_id}", response_model=GatewayResponse, dependencies=[Depends(require_token)])
+async def get_operation(
+    operation_id: str,
+    speaker: str,
+    bank_id: str | None = None,
+) -> GatewayResponse:
+    """Read one async operation while keeping task content and other speakers private."""
+    started = time.perf_counter()
+    selected_bank = bank(bank_id)
+    try:
+        operation = await hindsight.get_operation(
+            selected_bank, operation_id, include_payload=True
+        )
+    except httpx.HTTPError as exc:
+        raise engine_error(exc) from exc
+    if operation.get("status") == "not_found" or speaker not in operation_speakers(operation):
+        raise HTTPException(status_code=404, detail="operation not found")
+    return GatewayResponse(
+        bank_id=selected_bank,
+        data=public_operation(operation),
+        timing_ms={"gateway_total": elapsed_ms(started)},
+    )
 
 
 @app.post("/v1/documents/{document_id}/patch", response_model=GatewayResponse, dependencies=[Depends(require_token)])
